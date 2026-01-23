@@ -45,8 +45,20 @@ const Login = () => {
         throw error;
       }
 
+      // Check if user is admin
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
       toast.success("Successfully logged in!");
-      navigate("/dashboard");
+
+      if (profile?.role === 'admin') {
+        navigate("/admin");
+      } else {
+        navigate("/dashboard");
+      }
     } catch (err: any) {
       if (err.message.includes("Email not confirmed")) {
         setError("Please verify your email address before signing in.");
@@ -185,7 +197,7 @@ const Login = () => {
               </Button>
             </form>
 
-            <div className="mt-6 text-center">
+            <div className="mt-6 text-center space-y-2">
               <p className="text-sm text-muted-foreground">
                 Don't have an account?{" "}
                 <button
@@ -193,6 +205,14 @@ const Login = () => {
                   className="text-primary font-medium hover:underline"
                 >
                   Create Account
+                </button>
+              </p>
+              <p className="text-sm text-muted-foreground">
+                <button
+                  onClick={() => navigate("/teacher-login")}
+                  className="text-primary font-medium hover:underline"
+                >
+                  Teacher Login
                 </button>
               </p>
             </div>

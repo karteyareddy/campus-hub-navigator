@@ -1,177 +1,293 @@
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { 
-  Users, 
+import {
+  Users,
   Search,
   MapPin,
   Clock,
   Mail,
-  MessageCircle
+  MessageCircle,
+  Calendar
 } from "lucide-react";
+import { parseCSV, decodeRoom, TimetableEntry, getAllUniqueFaculties } from "@/utils/timetableUtils";
+import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "@/components/ui/select";
 
-const professors = [
-  { id: 1, name: "Dr. Rajesh Kumar", department: "Computer Science", subject: "Data Structures", location: "CS Block, Room 101", available: true, availableUntil: "11:00 AM", email: "rajesh.k@klu.ac.in" },
-  { id: 2, name: "Dr. Priya Sharma", department: "Computer Science", subject: "Database Systems", location: "CS Block, Room 105", available: true, availableUntil: "12:00 PM", email: "priya.s@klu.ac.in" },
-  { id: 3, name: "Prof. Anil Reddy", department: "Computer Science", subject: "Computer Networks", location: "CS Block, Room 201", available: false, availableUntil: "", email: "anil.r@klu.ac.in" },
-  { id: 4, name: "Dr. Lakshmi Devi", department: "Computer Science", subject: "Operating Systems", location: "CS Block, Room 202", available: true, availableUntil: "02:00 PM", email: "lakshmi.d@klu.ac.in" },
-  { id: 5, name: "Prof. Suresh Babu", department: "Mathematics", subject: "Mathematics III", location: "Math Block, Room 101", available: false, availableUntil: "", email: "suresh.b@klu.ac.in" },
-  { id: 6, name: "Dr. Venkat Rao", department: "Computer Science", subject: "Machine Learning", location: "AI Lab, Room 301", available: true, availableUntil: "03:00 PM", email: "venkat.r@klu.ac.in" },
-  { id: 7, name: "Dr. Meera Patel", department: "Computer Science", subject: "Software Engineering", location: "CS Block, Room 301", available: true, availableUntil: "04:00 PM", email: "meera.p@klu.ac.in" },
-  { id: 8, name: "Prof. Kiran Kumar", department: "Computer Science", subject: "Web Technologies", location: "CS Block, Room 401", available: false, availableUntil: "", email: "kiran.k@klu.ac.in" },
+const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const timeSlots = [
+  "09:00-10:00",
+  "10:00-11:00",
+  "11:00-12:00",
+  "12:00-01:00",
+  "01:00-02:00",
+  "02:00-03:00",
+  "03:00-04:00",
+  "04:00-05:00"
 ];
 
-const departments = ["All Departments", "Computer Science", "Mathematics", "Electronics"];
-
 const Professors = () => {
+  const [loading, setLoading] = useState(true);
+  const [allEntries, setAllEntries] = useState<TimetableEntry[]>([]);
+  const [faculties, setFaculties] = useState<string[]>([]);
+
   const [searchQuery, setSearchQuery] = useState("");
-  const [filterDepartment, setFilterDepartment] = useState("All Departments");
   const [filterAvailable, setFilterAvailable] = useState<boolean | null>(null);
 
-  const filteredProfessors = professors.filter(prof => {
-    const matchesSearch = prof.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          prof.subject.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesDept = filterDepartment === "All Departments" || prof.department === filterDepartment;
+  // Default to current time logic
+  const [selectedDay, setSelectedDay] = useState<string>("Monday");
+  const [selectedTime, setSelectedTime] = useState<string>("09:00-10:00");
+
+  useEffect(() => {
+    // Auto-select current day
+    const d = new Date();
+    const dayName = days[d.getDay() - 1];
+    if (dayName) setSelectedDay(dayName);
+
+    // Auto-select current time slot (rough approximation)
+    const hour = d.getHours();
+    if (hour >= 9 && hour <= 16) {
+      // e.g., 9 -> 09:00-10:00, 12 -> 12:00-01:00
+      const start = hour > 12 ? hour - 12 : hour;
+      const end = hour + 1 > 12 ? hour + 1 - 12 : hour + 1;
+      const searchStr = `${start.toString().padStart(2, '0')}:00`;
+      const found = timeSlots.find(t => t.startsWith(searchStr));
+      if (found) setSelectedTime(found);
+    }
+
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    try {
+      const files = [
+        "23S01_FULL_WEEK_TIMETABLE.csv",
+        "23S02_FULL_WEEK_TIMETABLE.csv",
+        "23S03_FULL_WEEK_TIMETABLE.csv",
+        "23S04_FULL_WEEK_TIMETABLE.csv"
+      ];
+
+      let combined: TimetableEntry[] = [];
+      for (const file of files) {
+        const res = await fetch(`/data/${file}`);
+        const text = await res.text();
+        const entries = parseCSV(text, file.split('_')[0]);
+        combined = [...combined, ...entries];
+      }
+
+      setAllEntries(combined);
+      setFaculties(getAllUniqueFaculties(combined));
+      setLoading(false);
+    } catch (error) {
+      console.error("Failed to load data", error);
+      toast.error("Failed to load professor data");
+      setLoading(false);
+    }
+  };
+
+  // Compute status for each faculty based on selected slot
+  const getFacultyStatus = (facultyName: string) => {
+    const activeClass = allEntries.find(e =>
+      e.faculty === facultyName &&
+      e.day.toLowerCase() === selectedDay.toLowerCase() &&
+      e.time === selectedTime
+    );
+
+    if (activeClass) {
+      return {
+        available: false,
+        subject: activeClass.subject,
+        location: activeClass.roomRaw,
+        decodedLoc: activeClass.roomDecoded,
+        section: activeClass.section
+      };
+    }
+    return { available: true };
+  };
+
+  if (loading) {
+    return <div className="flex items-center justify-center p-12"><div className="animate-spin w-8 h-8 border-4 border-primary rounded-full border-t-transparent"></div></div>;
+  }
+
+  // Filter and Map
+  const processedProfessors = faculties.map((name, idx) => {
+    const status = getFacultyStatus(name);
+    // Fake email generator
+    const email = `${name.toLowerCase().replace(/\s+/g, '.')}@klu.ac.in`;
+
+    return {
+      id: idx,
+      name,
+      email,
+      department: "Computer Science", // Defaulting for now as CSV lacks this
+      ...status
+    };
+  }).filter(prof => {
+    const matchesSearch = prof.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesAvailable = filterAvailable === null || prof.available === filterAvailable;
-    return matchesSearch && matchesDept && matchesAvailable;
+    return matchesSearch && matchesAvailable;
   });
 
-  const availableCount = professors.filter(p => p.available).length;
+  const availableCount = processedProfessors.filter(p => p.available).length;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6 animate-fade-in p-2 md:p-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl lg:text-3xl font-bold text-foreground">Professor Availability</h1>
-          <p className="text-muted-foreground mt-1">Find available professors for guidance</p>
+          <p className="text-muted-foreground mt-1">Real-time status based on timetable</p>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 bg-status-available/10 rounded-lg">
-          <div className="w-2 h-2 rounded-full bg-status-available animate-pulse" />
-          <span className="text-sm font-medium text-status-available">
-            {availableCount} professors available
-          </span>
+
+        {/* Time Selectors */}
+        <div className="flex items-center gap-2">
+          <Select value={selectedDay} onValueChange={setSelectedDay}>
+            <SelectTrigger className="w-[130px]">
+              <Calendar className="w-4 h-4 mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {days.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={selectedTime} onValueChange={setSelectedTime}>
+            <SelectTrigger className="w-[140px]">
+              <Clock className="w-4 h-4 mr-2" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {timeSlots.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      {/* Filters */}
-      <Card variant="glass">
-        <CardContent className="p-4">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                placeholder="Search professors or subjects..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <select
-                value={filterDepartment}
-                onChange={(e) => setFilterDepartment(e.target.value)}
-                className="h-10 px-4 rounded-lg border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {departments.map(dept => (
-                  <option key={dept} value={dept}>{dept}</option>
-                ))}
-              </select>
-              <Button
-                variant={filterAvailable === null ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFilterAvailable(null)}
-              >
-                All
-              </Button>
-              <Button
-                variant={filterAvailable === true ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFilterAvailable(true)}
-                className={filterAvailable === true ? "bg-status-available hover:bg-status-available/90" : ""}
-              >
-                Available
-              </Button>
-              <Button
-                variant={filterAvailable === false ? "default" : "outline"}
-                size="sm"
-                onClick={() => setFilterAvailable(false)}
-                className={filterAvailable === false ? "bg-status-busy hover:bg-status-busy/90" : ""}
-              >
-                Busy
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Stats & Filters */}
+      <div className="flex flex-col lg:flex-row gap-4 items-center">
+        <div className="bg-status-available/10 px-4 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap">
+          <div className="w-2 h-2 rounded-full bg-status-available animate-pulse" />
+          <span className="text-sm font-medium text-status-available">
+            {availableCount} Available Now
+          </span>
+        </div>
+
+        <div className="w-full relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 w-full"
+          />
+        </div>
+
+        <div className="flex gap-2 w-full lg:w-auto">
+          <Button
+            variant={filterAvailable === null ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterAvailable(null)}
+            className="flex-1 lg:flex-none"
+          >
+            All
+          </Button>
+          <Button
+            variant={filterAvailable === true ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterAvailable(true)}
+            className={`flex-1 lg:flex-none ${filterAvailable === true ? "bg-status-available hover:bg-status-available/90" : ""}`}
+          >
+            Available
+          </Button>
+          <Button
+            variant={filterAvailable === false ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterAvailable(false)}
+            className={`flex-1 lg:flex-none ${filterAvailable === false ? "bg-status-busy hover:bg-status-busy/90" : ""}`}
+          >
+            Busy
+          </Button>
+        </div>
+      </div>
 
       {/* Professors Grid */}
       <div className="grid md:grid-cols-2 gap-4">
-        {filteredProfessors.map((prof, index) => (
-          <Card 
+        {processedProfessors.map((prof, index) => (
+          <Card
             key={prof.id}
             variant="interactive"
-            className={`animate-slide-up ${prof.available ? '' : 'opacity-75'}`}
-            style={{ animationDelay: `${index * 0.05}s`, opacity: 0 }}
+            className={`animate-slide-up ${prof.available ? '' : 'opacity-90'}`}
+            style={{ animationDelay: `${index * 0.05}s` }}
           >
             <CardContent className="p-5">
               <div className="flex items-start gap-4">
-                <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold ${
-                  prof.available 
-                    ? 'bg-gradient-to-br from-primary to-accent text-primary-foreground' 
+                <div className={`w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold ${prof.available
+                    ? 'bg-gradient-to-br from-primary to-accent text-primary-foreground'
                     : 'bg-muted text-muted-foreground'
-                }`}>
-                  {prof.name.split(' ').slice(1).map(n => n[0]).join('')}
+                  }`}>
+                  {prof.name.substring(0, 2).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-semibold text-foreground">{prof.name}</h3>
-                      <p className="text-sm text-muted-foreground">{prof.subject}</p>
+                      <p className="text-xs text-muted-foreground truncate">{prof.email}</p>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ${
-                      prof.available 
-                        ? 'bg-status-available/10 text-status-available' 
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium flex-shrink-0 ${prof.available
+                        ? 'bg-status-available/10 text-status-available'
                         : 'bg-status-busy/10 text-status-busy'
-                    }`}>
+                      }`}>
                       {prof.available ? 'Available' : 'Busy'}
                     </span>
                   </div>
-                  
+
                   <div className="mt-3 space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <MapPin className="w-4 h-4 flex-shrink-0" />
-                      <span className="truncate">{prof.location}</span>
-                    </div>
-                    {prof.available && (
+                    {!prof.available ? (
+                      <>
+                        <div className="flex items-center gap-2 text-sm text-foreground font-medium">
+                          <Clock className="w-4 h-4 flex-shrink-0 text-orange-500" />
+                          <span>Teaching {prof.subject}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <MapPin className="w-4 h-4 flex-shrink-0" />
+                          <span>Room {prof.location} {prof.decodedLoc ? `(B${prof.decodedLoc.block}-F${prof.decodedLoc.floor})` : ''} - {prof.section}</span>
+                        </div>
+                      </>
+                    ) : (
                       <div className="flex items-center gap-2 text-sm text-status-available">
                         <Clock className="w-4 h-4 flex-shrink-0" />
-                        <span>Available until {prof.availableUntil}</span>
+                        <span>Available throughout this slot</span>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
 
-              {prof.available && (
-                <div className="flex items-center gap-2 mt-4">
-                  <Button variant="outline" size="sm" className="flex-1">
-                    <Mail className="w-4 h-4 mr-1" />
-                    Email
+              {/* Actions - Only if available (or maybe email is always useful) */}
+              <div className="flex items-center gap-2 mt-4">
+                <Button variant="outline" size="sm" className="flex-1 text-xs h-8">
+                  <Mail className="w-3 h-3 mr-1" />
+                  Email
+                </Button>
+                {prof.available && (
+                  <Button variant="campus" size="sm" className="flex-1 text-xs h-8">
+                    <MessageCircle className="w-3 h-3 mr-1" />
+                    Chat
                   </Button>
-                  <Button variant="campus" size="sm" className="flex-1">
-                    <MessageCircle className="w-4 h-4 mr-1" />
-                    Message
-                  </Button>
-                </div>
-              )}
+                )}
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
-      {filteredProfessors.length === 0 && (
+      {processedProfessors.length === 0 && (
         <Card variant="glass" className="p-12 text-center">
           <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
           <h3 className="text-lg font-semibold text-foreground mb-2">No professors found</h3>
