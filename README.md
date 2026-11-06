@@ -1,3 +1,12 @@
+<!-- banner:start -->
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/banner-dark.svg">
+    <img alt="Campus Hub Navigator: Timetables, free classrooms, professors, study materials and past papers in one campus app." src=".github/assets/banner-light.svg" width="100%">
+  </picture>
+</p>
+<!-- banner:end -->
+
 # Campus Hub Navigator
 
 A campus companion web app for students, teachers and admins: section timetables, "who and which room is free right now", a classroom directory, crowd-sourced study materials and previous-year question papers, and an admin panel — a React single-page app backed by Supabase Auth, Postgres and Storage.
